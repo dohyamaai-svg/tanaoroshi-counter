@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>棚卸カウンター</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+    margin: 0; background: #f2f4f7; color: #1a2230;
+  }
+  header {
+    background: #15396b; color: #fff; padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 20px; margin: 0; }
+  .stats { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+  .stats b { font-size: 22px; display: block; }
+  main { max-width: 880px; margin: 0 auto; padding: 18px; }
+  .scanbox {
+    background: #fff; border-radius: 12px; padding: 18px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08); margin-bottom: 18px;
+  }
+  .scanbox label { font-weight: 600; font-size: 15px; }
+  #scan {
+    width: 100%; font-size: 30px; padding: 14px; margin-top: 8px;
+    border: 3px solid #15396b; border-radius: 10px; text-align: center;
+    letter-spacing: 2px;
+  }
+  #scan:focus { outline: none; border-color: #2f7d32; box-shadow: 0 0 0 4px #cfe8d0; }
+  .hint { font-size: 13px; color: #667; margin-top: 8px; }
+  .qtyrow { margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .qtyrow input[type=number] { width: 70px; font-size: 18px; padding: 6px; text-align: center; border:1px solid #aab; border-radius:6px;}
+  .dictbtn { background:#e2e6ee; padding:7px 12px; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px; }
+  .dictbtn:hover { background:#d4dae6; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  button {
+    font-size: 14px; padding: 9px 14px; border-radius: 8px; border: none;
+    cursor: pointer; font-weight: 600;
+  }
+  .btn-primary { background: #2f7d32; color: #fff; }
+  .btn-gray { background: #e2e6ee; color: #1a2230; }
+  .btn-danger { background: #fff; color: #c23; border: 1px solid #c23; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.06);}
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eef0f4; }
+  th { background: #eef2f8; font-size: 13px; color: #445; }
+  td.num { text-align: center; font-size: 20px; font-weight: 700; width: 90px; }
+  td.jan { font-family: monospace; font-size: 15px; }
+  .name-input { width: 100%; border: 1px dashed #bcd; padding: 5px; border-radius: 5px; font-size: 14px; }
+  tr.flash { animation: fl .8s; }
+  @keyframes fl { from { background: #d6f0d8; } to { background: #fff; } }
+  .row-btns button { padding: 4px 8px; font-size: 12px; }
+  .empty { text-align: center; color: #889; padding: 30px; }
+  .savednote { font-size: 12px; color: #2f7d32; }
+  .who { font-size: 14px; }
+  .who input { font-size: 15px; padding: 6px 8px; border: 1px solid #aab; border-radius: 6px; width: 140px; }
+  .btn-cam { background: #15396b; color: #fff; }
+  #camwrap { display: none; margin-top: 12px; position: relative; background:#000; border-radius:10px; overflow:hidden; }
+  #camwrap.on { display: block; }
+  #cam { width: 100%; max-height: 320px; object-fit: cover; display:block; }
+  .camline { position:absolute; left:8%; right:8%; top:50%; height:3px; background:#ff3b3b; box-shadow:0 0 8px #ff3b3b; }
+  .camlast { position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,.6); color:#fff; font-size:14px; padding:6px 10px; text-align:center; }
+  .camclose { position:absolute; top:8px; right:8px; background:rgba(255,255,255,.9); color:#15396b; border-radius:6px; padding:5px 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📦 棚卸カウンター</h1>
+  <div class="stats">
+    <div>品目数<b id="stat-items">0</b></div>
+    <div>合計点数<b id="stat-total">0</b></div>
+  </div>
+</header>
+
+<main>
+  <div class="scanbox">
+    <div class="who" style="margin-bottom:10px">担当者名（任意）:
+      <input id="who" placeholder="例: 山田" onchange="saveWho()" oninput="saveWho()">
+      <span class="hint" style="margin-left:6px">5人で分けて数えるとき、書き出すCSVに名前が入ります</span>
+    </div>
+    <label for="scan">ここにバーコードをスキャン（Bluetoothレーザー＝この枠にピッ／カメラ＝下のボタン）</label>
+    <input id="scan" autocomplete="off" placeholder="スキャン待機中…" autofocus>
+    <div class="qtyrow">
+      <button class="btn-cam" onclick="toggleCam()" id="cambtn">📷 カメラで読む</button>
+      1回のスキャンで <input id="step" type="number" value="1" min="1"> 個ずつ加算
+      <label class="dictbtn" title="jan_master.csv を読み込むと、スキャン中に商品名が表示されます">📖 JAN辞書(CSV)
+        <input id="dictfile" type="file" accept=".csv" style="display:none" onchange="loadDict(this.files[0])">
+      </label>
+      <span class="savednote" id="dictnote"></span>
+      <span style="margin-left:auto" class="savednote" id="savednote">自動保存ON</span>
+    </div>
+    <div id="camwrap">
+      <video id="cam" playsinline muted></video>
+      <div class="camline"></div>
+      <div class="camclose" onclick="toggleCam()">✕ 閉じる</div>
+      <div class="camlast" id="camlast">バーコードを枠の赤い線に合わせてください</div>
+    </div>
+    <div class="hint">💡 同じ棚の同じ商品は、置いてある数だけ続けてピッピッと。手で数えて「個ずつ」を変えてから1回読む方法も可。読取り失敗は「1つ戻す」で修正。辞書を読み込むと登録済み商品は名前が自動表示（任意）。</div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn-primary" onclick="exportCSV()">⬇ CSVに書き出す（Excelで開ける）</button>
+    <button class="btn-gray" onclick="undo()">↩ 直前を1つ戻す</button>
+    <label class="dictbtn" title="他の人が書き出したCSVを読み込んで数量を合算します">➕ 他のCSVを合算
+      <input id="mergefile" type="file" accept=".csv" multiple style="display:none" onchange="mergeCSV(this.files)">
+    </label>
+    <button class="btn-gray" onclick="document.getElementById('scan').focus()">🎯 入力欄にカーソルを戻す</button>
+    <button class="btn-danger" onclick="clearAll()">🗑 全部消す</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th class="jan">JANコード</th><th>商品名（任意・あとで入力可）</th><th class="num">数量</th><th style="width:90px"></th></tr>
+    </thead>
+    <tbody id="rows">
+      <tr><td colspan="4" class="empty">まだスキャンされていません。上の枠を1回クリックしてから、商品をピッと読んでください。</td></tr>
+    </tbody>
+  </table>
+</main>
+
+<script src="zxing.min.js"></script>
+<script>
+const KEY = "tanaoroshi_v1";
+const WHOKEY = "tanaoroshi_who";
+let items = {};      // jan -> {jan, name, qty}
+let order = [];      // jan の順番（最近スキャン順、先頭が新しい）
+let history = [];    // undo用 jan履歴
+let dict = {};       // jan -> 商品名（読み込んだ辞書）
+
+load();
+document.getElementById('who').value = localStorage.getItem(WHOKEY) || '';
+render();
+
+function saveWho() { localStorage.setItem(WHOKEY, document.getElementById('who').value.trim()); }
+
+const scan = document.getElementById('scan');
+scan.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const code = scan.value.trim();
+    scan.value = '';
+    if (code) addScan(code);
+  }
+});
+// 入力欄からフォーカスが外れても、クリックでどこかを触ったら戻す（誤操作防止）
+document.addEventListener('click', e => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') scan.focus();
+});
+
+function addScan(code) {
+  const step = Math.max(1, parseInt(document.getElementById('step').value) || 1);
+  if (!items[code]) {
+    items[code] = { jan: code, name: dict[code] || '', qty: 0 };
+    order.unshift(code);
+  } else {
+    // 既存も先頭に持ってくる
+    order = order.filter(c => c !== code);
+    order.unshift(code);
+  }
+  items[code].qty += step;
+  history.push({ jan: code, step });
+  save();
+  render(code);
+}
+
+function undo() {
+  const last = history.pop();
+  if (!last) return;
+  items[last.jan].qty -= last.step;
+  if (items[last.jan].qty <= 0) {
+    delete items[last.jan];
+    order = order.filter(c => c !== last.jan);
+  }
+  save();
+  render();
+}
+
+function setQty(jan, val) {
+  const v = parseInt(val);
+  if (isNaN(v) || v <= 0) { delete items[jan]; order = order.filter(c=>c!==jan); }
+  else items[jan].qty = v;
+  save(); render();
+}
+function setName(jan, val) { if(items[jan]){ items[jan].name = val; save(); } }
+function delRow(jan) { delete items[jan]; order = order.filter(c=>c!==jan); save(); render(); }
+
+function render(flashJan) {
+  const tbody = document.getElementById('rows');
+  if (order.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">まだスキャンされていません。上の枠を1回クリックしてから、商品をピッと読んでください。</td></tr>';
+  } else {
+    tbody.innerHTML = order.map(jan => {
+      const it = items[jan];
+      const fl = (jan === flashJan) ? ' class="flash"' : '';
+      return `<tr${fl}>
+        <td class="jan">${jan}</td>
+        <td><input class="name-input" value="${(it.name||'').replace(/"/g,'&quot;')}" placeholder="（空欄でOK）" onchange="setName('${jan}', this.value)"></td>
+        <td class="num"><input style="width:60px;font-size:18px;text-align:center;border:1px solid #ccd;border-radius:5px" value="${it.qty}" onchange="setQty('${jan}', this.value)"></td>
+        <td class="row-btns"><button class="btn-danger" onclick="delRow('${jan}')">削除</button></td>
+      </tr>`;
+    }).join('');
+  }
+  let total = 0; for (const j in items) total += items[j].qty;
+  document.getElementById('stat-items').textContent = order.length;
+  document.getElementById('stat-total').textContent = total;
+}
+
+function exportCSV() {
+  if (order.length === 0) { alert('データがありません'); return; }
+  let csv = '﻿' + 'JANコード,商品名,数量\n';
+  // JAN順に並べ替えて出力
+  const sorted = Object.values(items).sort((a,b)=> a.jan.localeCompare(b.jan));
+  for (const it of sorted) {
+    const name = '"' + (it.name||'').replace(/"/g,'""') + '"';
+    csv += `${it.jan},${name},${it.qty}\n`;
+  }
+  const d = new Date();
+  const stamp = d.getFullYear() + ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2)
+              + '_' + ('0'+d.getHours()).slice(-2) + ('0'+d.getMinutes()).slice(-2);
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const who = (localStorage.getItem(WHOKEY) || '').trim();
+  a.download = who ? `棚卸_${who}_${stamp}.csv` : `棚卸_${stamp}.csv`;
+  a.click();
+}
+
+function clearAll() {
+  if (!confirm('本当に全部消しますか？（書き出し済みなら消してOK）')) return;
+  items = {}; order = []; history = []; save(); render();
+}
+
+function loadDict(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.split(/\r?\n/);
+    dict = {};
+    let n = 0;
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i].replace(/^﻿/, '').trim();
+      if (!line) continue;
+      // 簡易CSVパース（商品名にカンマがあれば "..." で囲まれている前提）
+      const cols = parseCsvLine(line);
+      const jan = (cols[0] || '').trim();
+      const name = (cols[1] || '').trim();
+      if (i === 0 && (jan === 'JANコード' || jan.toUpperCase() === 'JAN')) continue; // ヘッダ
+      if (jan && name) { dict[jan] = name; n++; }
+    }
+    document.getElementById('dictnote').textContent = `辞書 ${n}件 読込済`;
+    // 既にスキャン済みで名前空欄のものを埋める
+    for (const j in items) { if (!items[j].name && dict[j]) items[j].name = dict[j]; }
+    save(); render();
+  };
+  reader.readAsText(file, 'utf-8');
+}
+function parseCsvLine(line) {
+  const out = []; let cur = ''; let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) {
+      if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    } else {
+      if (c === '"') q = true;
+      else if (c === ',') { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/* ===== カメラ読取り（iPhone/Android両対応） ===== */
+let camOn = false, camStream = null, zxingReader = null, nativeDetector = null;
+let lastCamCode = '', lastCamTime = 0;
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880; g.gain.value = 0.15;
+    o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 120);
+  } catch(e) {}
+  if (navigator.vibrate) navigator.vibrate(60);
+}
+
+function onCamDetect(code) {
+  code = (code || '').trim();
+  if (!code) return;
+  const now = Date.now();
+  // 同じコードを連続で拾い続けるのを防ぐ（1.5秒の間引き）
+  if (code === lastCamCode && now - lastCamTime < 1500) return;
+  lastCamCode = code; lastCamTime = now;
+  addScan(code);
+  beep();
+  const it = items[code];
+  document.getElementById('camlast').textContent =
+    '✅ ' + code + (it && it.name ? ' / ' + it.name : '') + '（数量 ' + (it ? it.qty : 1) + '）';
+}
+
+async function toggleCam() {
+  if (camOn) { stopCam(); return; }
+  const wrap = document.getElementById('camwrap');
+  const video = document.getElementById('cam');
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+    video.srcObject = camStream;
+    await video.play();
+    wrap.classList.add('on');
+    camOn = true;
+    document.getElementById('cambtn').textContent = '📷 カメラを止める';
+
+    if ('BarcodeDetector' in window) {
+      // Android Chrome 等：ネイティブが速い
+      nativeDetector = new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128'] });
+      const loop = async () => {
+        if (!camOn) return;
+        try {
+          const codes = await nativeDetector.detect(video);
+          if (codes && codes.length) onCamDetect(codes[0].rawValue);
+        } catch(e) {}
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    } else {
+      // iPhone Safari 等：同梱ZXingで読む
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.CODE_128
+      ]);
+      zxingReader = new ZXing.BrowserMultiFormatReader(hints, 250);
+      zxingReader.decodeFromStream(camStream, video, (result, err) => {
+        if (result) onCamDetect(result.getText());
+      });
+    }
+  } catch(e) {
+    alert('カメラを起動できませんでした。\nブラウザのカメラ許可を確認してください。\n（' + e.message + '）');
+    stopCam();
+  }
+}
+
+function stopCam() {
+  camOn = false;
+  document.getElementById('camwrap').classList.remove('on');
+  document.getElementById('cambtn').textContent = '📷 カメラで読む';
+  try { if (zxingReader) { zxingReader.reset(); zxingReader = null; } } catch(e) {}
+  nativeDetector = null;
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  document.getElementById('scan').focus();
+}
+
+/* ===== 複数CSVの合算（5人分まとめ用） ===== */
+function mergeCSV(files) {
+  if (!files || !files.length) return;
+  let done = 0, added = 0;
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const lines = e.target.result.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].replace(/^﻿/, '').trim();
+        if (!line) continue;
+        const cols = parseCsvLine(line);
+        const jan = (cols[0] || '').trim();
+        const name = (cols[1] || '').trim();
+        const qty = parseInt((cols[2] || '').trim());
+        if (i === 0 && (jan === 'JANコード' || jan.toUpperCase() === 'JAN')) continue;
+        if (!jan || isNaN(qty) || qty <= 0) continue;
+        if (!items[jan]) { items[jan] = { jan, name: name || dict[jan] || '', qty: 0 }; order.unshift(jan); }
+        else if (!items[jan].name && name) items[jan].name = name;
+        items[jan].qty += qty;
+        added += qty;
+      }
+      done++;
+      if (done === files.length) {
+        save(); render();
+        alert(files.length + '個のCSVを合算しました（+' + added + '点）。\n品目数 ' + order.length + ' / 合計 ' + Object.values(items).reduce((s,i)=>s+i.qty,0) + ' 点');
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+  document.getElementById('mergefile').value = '';
+}
+
+function save() {
+  localStorage.setItem(KEY, JSON.stringify({ items, order }));
+}
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY));
+    if (d) { items = d.items || {}; order = d.order || []; }
+  } catch(e) {}
+}
+</script>
+</body>
+</html>
