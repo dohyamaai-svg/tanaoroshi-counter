@@ -23,11 +23,13 @@
     box-shadow: 0 2px 8px rgba(0,0,0,.08); margin-bottom: 18px;
   }
   .scanbox label { font-weight: 600; font-size: 15px; }
+  .scanrow { display: flex; gap: 8px; margin-top: 8px; align-items: stretch; }
   #scan {
-    width: 100%; font-size: 30px; padding: 14px; margin-top: 8px;
+    flex: 1; min-width: 0; font-size: 30px; padding: 14px;
     border: 3px solid #15396b; border-radius: 10px; text-align: center;
     letter-spacing: 2px;
   }
+  #addbtn { font-size: 18px; padding: 0 18px; white-space: nowrap; }
   #scan:focus { outline: none; border-color: #2f7d32; box-shadow: 0 0 0 4px #cfe8d0; }
   .hint { font-size: 13px; color: #667; margin-top: 8px; }
   .qtyrow { margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 14px; }
@@ -88,8 +90,11 @@
       <input id="who" placeholder="例: 山田" onchange="saveWho()" oninput="saveWho()">
       <span class="hint" style="margin-left:6px">5人で分けて数えるとき、書き出すCSVに名前が入ります</span>
     </div>
-    <label for="scan">ここにバーコードをスキャン（Bluetoothレーザー＝この枠にピッ／カメラ＝下のボタン）</label>
-    <input id="scan" autocomplete="off" placeholder="スキャン待機中…" autofocus>
+    <label for="scan">バーコードをスキャン or JANコードを手入力（Bluetoothレーザー＝枠にピッ／カメラ＝下のボタン）</label>
+    <div class="scanrow">
+      <input id="scan" autocomplete="off" inputmode="numeric" placeholder="スキャン or 数字を手入力…" autofocus>
+      <button class="btn-primary" id="addbtn" onclick="manualAdd()">＋ 追加</button>
+    </div>
     <div class="qtyrow">
       <button class="btn-cam" onclick="toggleCam()" id="cambtn">📷 カメラで読む</button>
       1回のスキャンで <input id="step" type="number" value="1" min="1"> 個ずつ加算
@@ -188,6 +193,33 @@ document.getElementById('who').value = localStorage.getItem(WHOKEY) || '';
 updateSessionUI();
 if (Object.keys(dict).length) document.getElementById('dictnote').textContent = '辞書 ' + Object.keys(dict).length + '件（記憶済）';
 render();
+loadServerDict();   // サーバー上の jan_master.csv を起動時に自動読込
+
+// 同じ場所にある jan_master.csv を取りに行き、辞書に反映する
+function loadServerDict() {
+  fetch('jan_master.csv?t=' + Date.now())
+    .then(r => r.ok ? r.text() : Promise.reject())
+    .then(text => {
+      const lines = text.split(/\r?\n/);
+      let n = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].replace(/^﻿/, '').trim();
+        if (!line) continue;
+        const cols = parseCsvLine(line);
+        const jan = (cols[0] || '').trim();
+        const name = (cols[1] || '').trim();
+        if (i === 0 && (jan === 'JANコード' || jan.toUpperCase() === 'JAN')) continue;
+        if (jan && name) { dict[jan] = name; n++; }   // サーバーの内容を優先反映
+      }
+      if (n > 0) {
+        try { localStorage.setItem(DICTKEY, JSON.stringify(dict)); } catch(e) {}
+        for (const j in items) { if (!items[j].name && dict[j]) items[j].name = dict[j]; }
+        document.getElementById('dictnote').textContent = '辞書 ' + Object.keys(dict).length + '件（自動取得）';
+        render();
+      }
+    })
+    .catch(() => {/* ローカルでファイルを直接開いた等：無視（記憶済み辞書を使う） */});
+}
 
 function saveWho() { localStorage.setItem(WHOKEY, document.getElementById('who').value.trim()); }
 
@@ -234,10 +266,21 @@ scan.addEventListener('keydown', e => {
     if (code) addScan(code);
   }
 });
-// 入力欄からフォーカスが外れても、クリックでどこかを触ったら戻す（誤操作防止）
-document.addEventListener('click', e => {
-  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') scan.focus();
-});
+// 「＋追加」ボタン／手入力用（スマホの数字キーパッドにはEnterが無いため）
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+function manualAdd() {
+  const code = scan.value.trim();
+  scan.value = '';
+  if (code) addScan(code);
+  if (!isTouch) scan.focus();   // スマホはキーボードを出しっぱなしにしない
+}
+// PCのみ：入力欄からフォーカスが外れてもクリックで戻す（ハンディ機の取りこぼし防止）
+// スマホはこの自動フォーカスをしない（勝手にキーボードが出るのを防ぐ）
+if (!isTouch) {
+  document.addEventListener('click', e => {
+    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') scan.focus();
+  });
+}
 
 function addScan(code) {
   const step = Math.max(1, parseInt(document.getElementById('step').value) || 1);
